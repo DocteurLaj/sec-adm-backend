@@ -23,6 +23,10 @@ def new_opaque_token() -> str:
     return secrets.token_urlsafe(48)
 
 
+def new_email_code() -> str:
+    return f"{secrets.randbelow(1000000):06d}"
+
+
 def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 

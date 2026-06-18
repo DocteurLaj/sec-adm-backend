@@ -16,6 +16,31 @@ def run_light_migrations(db: Session) -> None:
                     "ADD COLUMN email_verified BOOL NOT NULL DEFAULT FALSE"
                 )
             )
+    result = db.execute(text("SHOW COLUMNS FROM clients LIKE 'pending_email'"))
+    if result.fetchone() is None:
+        db.execute(
+            text("ALTER TABLE clients ADD COLUMN pending_email VARCHAR(255) NULL")
+        )
+    result = db.execute(
+        text("SHOW COLUMNS FROM email_verification_tokens LIKE 'code_hash'")
+    )
+    if result.fetchone() is None:
+        db.execute(
+            text(
+                "ALTER TABLE email_verification_tokens "
+                "ADD COLUMN code_hash VARCHAR(128) NULL"
+            )
+        )
+    result = db.execute(
+        text("SHOW COLUMNS FROM email_verification_tokens LIKE 'target_email'")
+    )
+    if result.fetchone() is None:
+        db.execute(
+            text(
+                "ALTER TABLE email_verification_tokens "
+                "ADD COLUMN target_email VARCHAR(255) NULL"
+            )
+        )
     db.commit()
 
 

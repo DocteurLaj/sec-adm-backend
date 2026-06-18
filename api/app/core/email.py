@@ -40,12 +40,22 @@ def send_password_reset_email(to_email: str, reset_url: str) -> None:
     )
 
 
-def send_email_verification(to_email: str, verification_url: str) -> None:
+def send_email_verification(
+    to_email: str,
+    verification_url: str,
+    verification_code: str | None = None,
+) -> None:
+    code_text = (
+        f"Votre code de verification SEC est : {verification_code}\n\n"
+        if verification_code
+        else ""
+    )
     send_email(
         to_email,
         "Verification de votre email SEC",
         (
             "Bienvenue sur SEC.\n\n"
+            f"{code_text}"
             f"Confirmez votre adresse email avec ce lien :\n{verification_url}\n\n"
             "Si vous n'avez pas cree de compte SEC, ignorez ce message."
         ),

@@ -1,4 +1,5 @@
 from datetime import timedelta
+from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -11,6 +12,7 @@ from app.core.security import (
     create_access_token,
     hash_password,
     hash_token,
+    new_email_code,
     new_opaque_token,
     utc_now,
     verify_password,
@@ -24,7 +26,9 @@ from app.models.auth import (
     RefreshSession,
 )
 from app.models.client import Client
+from app.models.home import Home, Meter
 from app.schemas.auth import (
+    ChangeEmailRequest,
     ChangePasswordRequest,
     ClientRegisterRequest,
     ForgotPasswordRequest,
@@ -115,29 +119,43 @@ def _create_reset_token(db: Session, actor_type: str, actor_id: int) -> str:
     return token
 
 
-def _create_verification_token(db: Session, actor_type: str, actor_id: int) -> str:
+def _create_verification_token(
+    db: Session,
+    actor_type: str,
+    actor_id: int,
+    target_email: str,
+) -> tuple[str, str]:
     settings = get_settings()
     token = new_opaque_token()
+    code = new_email_code()
     db.add(
         EmailVerificationToken(
             actor_type=actor_type,
             actor_id=actor_id,
             token_hash=hash_token(token),
+            code_hash=hash_token(code),
+            target_email=target_email,
             expires_at=utc_now()
             + timedelta(hours=settings.email_verification_token_expire_hours),
         )
     )
     db.commit()
-    return token
+    return token, code
 
 
-def _send_verification_for_actor(db: Session, actor, actor_type: str) -> None:
-    token = _create_verification_token(db, actor_type, actor.id)
+def _send_verification_for_actor(
+    db: Session,
+    actor,
+    actor_type: str,
+    target_email: str | None = None,
+) -> None:
+    email = (target_email or actor.email).strip().lower()
+    token, code = _create_verification_token(db, actor_type, actor.id, email)
     verification_url = (
         f"{get_settings().frontend_url}/verify-email"
         f"?actorType={actor_type}&token={token}"
     )
-    send_email_verification(actor.email, verification_url)
+    send_email_verification(email, verification_url, code)
 
 
 @router.post("/client/register", response_model=TokenResponse, status_code=201)
@@ -157,6 +175,9 @@ def client_register(
         raise HTTPException(status_code=409, detail="Client email already exists")
     if phone and db.query(Client).filter(Client.phone == phone).first():
         raise HTTPException(status_code=409, detail="Client phone already exists")
+    meter_number = payload.meterNumber.strip() if payload.meterNumber else None
+    if meter_number and db.query(Meter).filter(Meter.meter_number == meter_number).first():
+        raise HTTPException(status_code=409, detail="Meter number already exists")
 
     client = Client(
         email=email,
@@ -169,6 +190,24 @@ def client_register(
     db.add(client)
     db.commit()
     db.refresh(client)
+    if meter_number:
+        home = Home(
+            client_id=client.id,
+            name="Maison principale",
+            address=payload.address,
+            city=None,
+            country="RDC",
+            currency="FC",
+            energy_price_per_kwh=Decimal("500.0000"),
+        )
+        home.meter = Meter(
+            meter_number=meter_number,
+            provider=payload.contractType or "SEC",
+            energy_balance_kwh=Decimal("0.000"),
+            total_loaded_kwh=Decimal("0.000"),
+        )
+        db.add(home)
+        db.commit()
     _send_verification_for_actor(db, client, "client")
     _audit(db, request, "client_registered", "client", client.id, client.email)
     return _token_response(db, client, "client")
@@ -300,17 +339,54 @@ def change_password(
     return {"message": "Password changed"}
 
 
+@router.post("/change-email", response_model=MessageResponse)
+def change_email(
+    payload: ChangeEmailRequest,
+    request: Request,
+    client: Annotated[Client, Depends(current_client)],
+    db: Annotated[Session, Depends(get_db)],
+):
+    new_email = payload.newEmail.strip().lower()
+    if "@" not in new_email or "." not in new_email:
+        raise HTTPException(status_code=422, detail="Invalid email")
+    if not verify_password(payload.currentPassword, client.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid current password")
+    existing = db.query(Client).filter(Client.email == new_email).first()
+    if existing and existing.id != client.id:
+        raise HTTPException(status_code=409, detail="Email already exists")
+    if new_email == client.email:
+        raise HTTPException(status_code=422, detail="New email must be different")
+
+    client.pending_email = new_email
+    db.commit()
+    _send_verification_for_actor(db, client, "client", target_email=new_email)
+    _audit(db, request, "email_change_requested", "client", client.id, new_email)
+    return {"message": "Verification code sent to the new email"}
+
+
 @router.post("/verify-email", response_model=MessageResponse)
 def verify_email(
     payload: VerifyEmailRequest,
     request: Request,
     db: Annotated[Session, Depends(get_db)],
 ):
-    verification = (
-        db.query(EmailVerificationToken)
-        .filter(EmailVerificationToken.token_hash == hash_token(payload.token))
-        .first()
-    )
+    query = db.query(EmailVerificationToken)
+    if payload.token:
+        verification = query.filter(
+            EmailVerificationToken.token_hash == hash_token(payload.token)
+        ).first()
+    elif payload.email and payload.code:
+        verification = (
+            query.filter(
+                EmailVerificationToken.actor_type == payload.actorType,
+                EmailVerificationToken.target_email == payload.email.strip().lower(),
+                EmailVerificationToken.code_hash == hash_token(payload.code.strip()),
+            )
+            .order_by(EmailVerificationToken.id.desc())
+            .first()
+        )
+    else:
+        raise HTTPException(status_code=422, detail="token or email/code is required")
     if (
         verification is None
         or verification.used_at is not None
@@ -320,6 +396,14 @@ def verify_email(
     actor = _find_actor(db, verification.actor_type, actor_id=verification.actor_id)
     if actor is None:
         raise HTTPException(status_code=400, detail="Account not found")
+    if (
+        verification.actor_type == "client"
+        and isinstance(actor, Client)
+        and actor.pending_email
+        and verification.target_email == actor.pending_email
+    ):
+        actor.email = actor.pending_email
+        actor.pending_email = None
     actor.email_verified = True
     verification.used_at = utc_now()
     db.commit()
@@ -333,10 +417,18 @@ def resend_verification(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
 ):
-    actor = _find_actor(db, payload.actorType, email=payload.email)
-    if actor is not None and actor.is_active and not actor.email_verified:
-        _send_verification_for_actor(db, actor, payload.actorType)
-        _audit(db, request, "email_verification_sent", payload.actorType, actor.id, actor.email)
+    email = payload.email.strip().lower()
+    actor = _find_actor(db, payload.actorType, email=email)
+    if actor is None and payload.actorType == "client":
+        actor = db.query(Client).filter(Client.pending_email == email).first()
+    is_pending_email = (
+        payload.actorType == "client"
+        and isinstance(actor, Client)
+        and actor.pending_email == email
+    )
+    if actor is not None and actor.is_active and (is_pending_email or not actor.email_verified):
+        _send_verification_for_actor(db, actor, payload.actorType, target_email=email)
+        _audit(db, request, "email_verification_sent", payload.actorType, actor.id, email)
     return {"message": "If verification is required, an email has been sent"}
 
 
@@ -357,6 +449,7 @@ def client_me(client: Annotated[Client, Depends(current_client)]):
     return {
         "id": client.id,
         "email": client.email,
+        "pendingEmail": client.pending_email,
         "phone": client.phone,
         "fullName": client.full_name,
         "isActive": client.is_active,

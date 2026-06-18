@@ -11,6 +11,9 @@ class ClientRegisterRequest(BaseModel):
     phone: str | None = None
     fullName: str
     password: str
+    address: str | None = None
+    meterNumber: str | None = None
+    contractType: str | None = None
 
 
 class TokenResponse(BaseModel):
@@ -41,8 +44,16 @@ class ChangePasswordRequest(BaseModel):
     newPassword: str
 
 
+class ChangeEmailRequest(BaseModel):
+    currentPassword: str
+    newEmail: str
+
+
 class VerifyEmailRequest(BaseModel):
-    token: str
+    token: str | None = None
+    email: str | None = None
+    code: str | None = None
+    actorType: str = "client"
 
 
 class ResendVerificationRequest(BaseModel):

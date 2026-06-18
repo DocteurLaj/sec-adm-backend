@@ -11,6 +11,7 @@ class Client(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    pending_email: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     phone: Mapped[str | None] = mapped_column(String(40), unique=True, nullable=True)
     full_name: Mapped[str] = mapped_column(String(160))
     password_hash: Mapped[str] = mapped_column(String(255))
