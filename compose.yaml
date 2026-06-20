@@ -34,8 +34,13 @@ services:
       FIRST_ADMIN_EMAIL: ${FIRST_ADMIN_EMAIL:-admin@sec.local}
       FIRST_ADMIN_PASSWORD: ${FIRST_ADMIN_PASSWORD:-admin12345}
       FIRST_ADMIN_FULL_NAME: ${FIRST_ADMIN_FULL_NAME:-SEC Admin}
+      FIREBASE_CREDENTIALS_PATH: ${FIREBASE_CREDENTIALS_PATH:-}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      METER_SYNC_SECRET: ${METER_SYNC_SECRET:-sec-local-meter-sync}
     ports:
       - "8100:8000"
+    volumes:
+      - ./firebase:/app/firebase:ro
     depends_on:
       mysql:
         condition: service_healthy

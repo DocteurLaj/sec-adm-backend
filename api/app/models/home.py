@@ -53,16 +53,24 @@ class Meter(Base):
     meter_number: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     provider: Mapped[str | None] = mapped_column(String(120), nullable=True)
     energy_balance_kwh: Mapped[Decimal] = mapped_column(
-        Numeric(14, 3),
-        default=Decimal("0.000"),
+        Numeric(16, 6),
+        default=Decimal("0.000000"),
     )
     total_loaded_kwh: Mapped[Decimal] = mapped_column(
-        Numeric(14, 3),
-        default=Decimal("0.000"),
+        Numeric(16, 6),
+        default=Decimal("0.000000"),
     )
     total_paid_amount: Mapped[Decimal] = mapped_column(
         Numeric(14, 2),
         default=Decimal("0.00"),
+    )
+    total_consumed_kwh: Mapped[Decimal] = mapped_column(
+        Numeric(16, 6),
+        default=Decimal("0.000000"),
+    )
+    last_consumed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
     )
     status: Mapped[str] = mapped_column(String(40), default="active")
     last_loaded_at: Mapped[datetime | None] = mapped_column(

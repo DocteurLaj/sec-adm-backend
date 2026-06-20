@@ -23,8 +23,10 @@ def meter_out(meter: Meter | None) -> dict | None:
         "energyBalanceKwh": meter.energy_balance_kwh,
         "totalLoadedKwh": meter.total_loaded_kwh,
         "totalPaidAmount": meter.total_paid_amount,
+        "totalConsumedKwh": meter.total_consumed_kwh,
         "status": meter.status,
         "lastLoadedAt": meter.last_loaded_at,
+        "lastConsumedAt": meter.last_consumed_at,
     }
 
 

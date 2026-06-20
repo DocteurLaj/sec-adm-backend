@@ -107,10 +107,57 @@ SMTP_USERNAME=
 SMTP_PASSWORD=
 SMTP_FROM_EMAIL=noreply@sec.local
 SMTP_USE_TLS=true
+PAWAPAY_BASE_URL=https://api.sandbox.pawapay.io
+PAWAPAY_API_TOKEN=
+PAWAPAY_CALLBACK_URL=
+PAWAPAY_DEFAULT_COUNTRY=COD
+PAWAPAY_DEFAULT_CURRENCY=CDF
+PAWAPAY_DEFAULT_CORRESPONDENT=VODACOM_MPESA_COD
+FIREBASE_CREDENTIALS_PATH=
+FIREBASE_PROJECT_ID=
 FIRST_ADMIN_EMAIL=admin@sec.local
 FIRST_ADMIN_PASSWORD=admin12345
 FIRST_ADMIN_FULL_NAME=SEC Admin
 ```
+
+## Notifications push telephone
+
+Le backend peut enregistrer les tokens FCM des telephones connectes et envoyer
+des push au client pendant les recharges/paiements.
+
+Endpoints client :
+
+```text
+POST   /push-tokens/me
+GET    /push-tokens/me
+DELETE /push-tokens/me/{tokenId}
+```
+
+Exemple d'enregistrement par l'application Flutter :
+
+```json
+{
+  "token": "FCM_DEVICE_TOKEN",
+  "platform": "android",
+  "deviceId": "telephone-principal"
+}
+```
+
+Pour activer l'envoi reel des push :
+
+1. Creer un projet Firebase.
+2. Creer une cle de compte de service Firebase Admin.
+3. Copier le fichier JSON dans `firebase/service-account.json`.
+4. Renseigner :
+
+```text
+FIREBASE_CREDENTIALS_PATH=/app/firebase/service-account.json
+FIREBASE_PROJECT_ID=ton-projet-firebase
+```
+
+Si `FIREBASE_CREDENTIALS_PATH` est vide, les endpoints restent disponibles,
+mais l'envoi FCM est ignore proprement. Cela permet de continuer les paiements
+et les tests sans Firebase.
 
 Important : `.env` est ignore par Git. Ne jamais pousser les vrais secrets.
 
@@ -347,7 +394,11 @@ Transactions :
 ```text
 GET  /transactions
 GET  /transactions/me
+GET  /transactions/{reference}
 POST /transactions/homes/{homeId}/recharge
+POST /transactions/homes/{homeId}/pawapay/recharge
+POST /transactions/{reference}/sync
+POST /transactions/pawapay/callback
 POST /transactions/admin/homes/{homeId}/recharge
 ```
 
@@ -365,13 +416,14 @@ Parcours client :
 1. Register ou login.
 2. Verifier son email.
 3. Consulter ses maisons avec `/homes/me`.
-4. Recharger son compteur.
+4. Recharger son compteur via pawaPay sandbox.
 5. Consulter ses transactions avec `/transactions/me`.
+6. Rafraichir une transaction en attente avec `/transactions/{reference}/sync`.
 
 Effet d'une recharge :
 
 ```text
-transaction paid
+paiement pawaPay confirme
   -> energy_kwh calcule depuis amount / energyPricePerKwh
   -> meters.energy_balance_kwh augmente
   -> meters.total_loaded_kwh augmente
@@ -420,7 +472,7 @@ Invoke-RestMethod `
   }'
 ```
 
-## Recharger le compteur
+## Recharger le compteur avec pawaPay sandbox
 
 Cote client :
 
@@ -429,21 +481,49 @@ $clientToken = "<CLIENT_TOKEN>"
 
 Invoke-RestMethod `
   -Method Post `
-  -Uri "http://localhost:8100/transactions/homes/1/recharge" `
+  -Uri "http://localhost:8100/transactions/homes/1/pawapay/recharge" `
   -Headers @{ Authorization = "Bearer $clientToken" } `
   -ContentType "application/json" `
   -Body '{
     "amount": 10000,
-    "paymentMethod": "Mobile Money",
-    "providerReference": "MM-REF-001"
+    "payerPhone": "243810000000"
   }'
 ```
 
-Si le prix est `500 FC/kWh`, un paiement de `10000 FC` charge :
+Le backend cree une transaction `pending`, appelle pawaPay sandbox, puis attend
+la confirmation. Si le prix est `500 FC/kWh`, un paiement confirme de
+`10000 FC` charge :
 
 ```text
 10000 / 500 = 20 kWh
 ```
+
+Verifier ou synchroniser le statut :
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://localhost:8100/transactions/SEC-PAWA-REFERENCE/sync" `
+  -Headers @{ Authorization = "Bearer $clientToken" } `
+  -ContentType "application/json" `
+  -Body '{}'
+```
+
+Callback pawaPay :
+
+```text
+POST /transactions/pawapay/callback
+```
+
+Pour que pawaPay atteigne ton backend local, `PAWAPAY_CALLBACK_URL` doit etre
+une URL publique qui pointe vers :
+
+```text
+https://ton-domaine-ou-tunnel/transactions/pawapay/callback
+```
+
+En local, tu peux laisser `PAWAPAY_CALLBACK_URL` vide et utiliser la route
+`/transactions/{reference}/sync` pour interroger pawaPay depuis l'application.
 
 La table `transactions` garde l'historique, et la table `meters` garde :
 
@@ -504,7 +584,9 @@ status, last_loaded_at
 ```text
 id, reference, client_id, home_id, meter_id,
 amount, currency, energy_kwh, payment_method,
-provider_reference, status, created_at, paid_at
+provider_reference, payment_provider, provider_deposit_id,
+provider_status, payer_phone, failure_reason,
+callback_payload, status, created_at, paid_at
 ```
 
 ## Maintenance
@@ -540,5 +622,6 @@ docker-compose logs -f api
 
 - Ce backend admin est separe du backend MQTT `sec-backend`.
 - Ici on commence l'authentification et la partie paiement/compteur client.
-- Les paiements sont simules pour l'instant : une recharge cree directement une transaction `paid`.
-- Pour la production, il faudra connecter un vrai prestataire de paiement, renforcer les roles, activer TLS et changer tous les secrets.
+- Les paiements client passent par pawaPay sandbox avec statut `pending`, `paid` ou `failed`.
+- Le compteur est credite uniquement quand pawaPay confirme le paiement.
+- Pour la production, il faudra remplacer les secrets sandbox, activer TLS, securiser les callbacks et renforcer les roles.

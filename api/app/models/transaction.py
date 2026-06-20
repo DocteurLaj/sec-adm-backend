@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String
+from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -20,6 +20,16 @@ class Transaction(Base):
     energy_kwh: Mapped[Decimal] = mapped_column(Numeric(14, 3))
     payment_method: Mapped[str] = mapped_column(String(80))
     provider_reference: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    payment_provider: Mapped[str] = mapped_column(String(80), default="manual")
+    provider_deposit_id: Mapped[str | None] = mapped_column(
+        String(160),
+        nullable=True,
+        index=True,
+    )
+    provider_status: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    payer_phone: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    callback_payload: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(40), default="pending")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

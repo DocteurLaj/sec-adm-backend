@@ -13,10 +13,11 @@ from app.models import (
     Home,
     Meter,
     PasswordResetToken,
+    PushToken,
     RefreshSession,
     Transaction,
 )
-from app.routers import admins, auth, clients, homes, meters, transactions
+from app.routers import admins, auth, clients, homes, meters, push_tokens, transactions
 
 
 @asynccontextmanager
@@ -29,6 +30,7 @@ async def lifespan(app: FastAPI):
         Home,
         Meter,
         PasswordResetToken,
+        PushToken,
         RefreshSession,
         Transaction,
     )
@@ -62,6 +64,7 @@ app.include_router(admins.router)
 app.include_router(clients.router)
 app.include_router(homes.router)
 app.include_router(meters.router)
+app.include_router(push_tokens.router)
 app.include_router(transactions.router)
 
 

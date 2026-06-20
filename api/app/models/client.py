@@ -32,3 +32,8 @@ class Client(Base):
         back_populates="client",
         cascade="all, delete-orphan",
     )
+    push_tokens: Mapped[list["PushToken"]] = relationship(
+        "PushToken",
+        back_populates="client",
+        cascade="all, delete-orphan",
+    )
